@@ -237,6 +237,8 @@
         banner = `<div class="banner bust">💥 ${who} got overwhelmed by ${CARDS[killer.key].icon} ${esc(CARDS[killer.key].name)} and lost ${lt.haul} gold</div>`;
       } else if (lt.result === 'escape') {
         banner = `<div class="banner escape">🏃 ${who} escaped with ${lt.haul} gold</div>`;
+      } else if (lt.result === 'cavein') {
+        banner = `<div class="banner bust">🪨 The cave collapsed on ${who}! All their gold is gone</div>`;
       } else if (lt.result === 'skipped') {
         banner = `<div class="banner skipped">${who} disconnected, so their turn was skipped</div>`;
       }
@@ -261,7 +263,9 @@
       controls = `<div class="note">📵 Waiting for ${esc(cur.name)} to reconnect…</div>
         <div style="margin-top:8px"><button id="skip" class="secondary">Skip their turn</button></div>`;
     } else if (cur) {
-      controls = `<div class="note">${t.peeking ? `🔦 ${esc(cur.name)} is peeking at the next card…` : `Watching ${esc(cur.name)} delve…`}</div>`;
+      const doing = t.choice ? `${CARDS[t.choice.kind].icon} ${esc(cur.name)} is ${t.choice.kind === 'toll' && !t.choice.roll ? 'rolling the die' : 'choosing a player'}…`
+        : t.peeking ? `🔦 ${esc(cur.name)} is peeking at the next card…` : `Watching ${esc(cur.name)} delve…`;
+      controls = `<div class="note">${doing}</div>`;
     }
 
     const turnTitle = mine ? 'Your turn!' : `${esc(cur ? cur.name : '')}'s turn`;
@@ -274,7 +278,7 @@
       <div class="stage">
         <h2>${turnTitle}</h2>
         <div class="stats">
-          <div class="stat"><div class="hearts">${hearts(t.damage)}</div><div class="l">Health ${Math.max(0, START_HEALTH - t.damage)}/${START_HEALTH}${t.shield ? ' · 🛡️' : ''}${t.cursed ? ' · 🕯️ cursed' : ''}</div></div>
+          <div class="stat"><div class="hearts">${hearts(t.damage)}</div><div class="l">Health ${Math.max(0, START_HEALTH - t.damage)}/${START_HEALTH}${t.shield ? ' · 🛡️' : ''}${t.cursed ? ` · 🕯️ cursed (${t.cursed})` : ''}</div></div>
           <div class="stat"><div class="v haul">${t.haul}</div><div class="l">Haul</div></div>
         </div>
         <div class="table" id="table">${table}</div>
@@ -282,22 +286,38 @@
       </div>
       <div class="log">${g.log.slice().reverse().map(l => `<div>${esc(l)}</div>`).join('')}</div>
       <div style="margin-top:14px">${rulesHTML(false)}</div>
-      ${mine && t.choosingAmbush ? ambushModal(g) : ''}`;
+      ${mine && t.choice ? choiceModal(g, t.choice) : ''}`;
 
     const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
     on('delve', () => sendMsg({ type: 'delve' }));
     on('escape', () => sendMsg({ type: 'escape' }));
     on('skip', () => sendMsg({ type: 'skip' }));
-    document.querySelectorAll('[data-ambush]').forEach(b => {
-      b.onclick = () => sendMsg({ type: 'ambush', target: b.dataset.ambush });
+    on('roll', () => sendMsg({ type: 'roll' }));
+    document.querySelectorAll('[data-target]').forEach(b => {
+      b.onclick = () => sendMsg({ type: 'choose', target: b.dataset.target });
     });
   }
 
-  function ambushModal(g) {
-    const others = g.players.filter(p => p.id !== state.you);
+  const DIE = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+
+  function choiceModal(g, c) {
+    const me = g.players.find(p => p.id === state.you);
+    let title;
+    if (c.kind === 'ambush') title = '🏹 Ambush! Who skips their next turn?';
+    else if (c.kind === 'plunder') title = '🏴‍☠️ Plunder! Whose gold do you take half of?';
+    else if (!c.roll) {
+      return `<div class="modal-bg"><div class="modal">
+        <h3>🎲 Toll! Roll to see how much gold you pay</h3>
+        <button id="roll">🎲 Roll the die</button>
+      </div></div>`;
+    } else {
+      const owed = Math.min(c.roll, g.turn.haul + me.banked);
+      title = `<div class="die">${DIE[c.roll]}</div>You rolled a ${c.roll}. Who gets your ${owed} gold?`;
+    }
+    const targets = g.players.filter(p => c.targets.includes(p.id));
     return `<div class="modal-bg"><div class="modal">
-      <h3>🏹 Ambush! Who skips their next turn?</h3>
-      ${others.map(p => `<button class="secondary" data-ambush="${esc(p.id)}">${esc(p.name)} · ${p.banked} gold</button>`).join('')}
+      <h3>${title}</h3>
+      ${targets.map(p => `<button class="secondary" data-target="${esc(p.id)}">${esc(p.name)} · ${p.banked} gold</button>`).join('')}
     </div></div>`;
   }
 

@@ -10,9 +10,9 @@ const CARDS = {
   gem:        { name: 'Gem',            type: 'treasure', count: 9,  gold: 3,  icon: '💎', text: '+3 gold' },
   chest:      { name: 'Treasure Chest', type: 'treasure', count: 4,  gold: 5,  icon: '🧰', text: '+5 gold' },
   crown:      { name: "Dragon's Crown", type: 'treasure', count: 1,  gold: 10, icon: '👑', text: '+10 gold' },
-  rat:        { name: 'Rat',            type: 'monster',  count: 5,  dmg: 1,   icon: '🐀', text: '1 damage' },
-  goblin:     { name: 'Goblin',         type: 'monster',  count: 5,  dmg: 2,   icon: '👺', text: '2 damage' },
-  skeleton:   { name: 'Skeleton',       type: 'monster',  count: 4,  dmg: 3,   icon: '💀', text: '3 damage' },
+  rat:        { name: 'Rat',            type: 'monster',  count: 4,  dmg: 1,   icon: '🐀', text: '1 damage' },
+  goblin:     { name: 'Goblin',         type: 'monster',  count: 4,  dmg: 2,   icon: '👺', text: '2 damage' },
+  skeleton:   { name: 'Skeleton',       type: 'monster',  count: 3,  dmg: 3,   icon: '💀', text: '3 damage' },
   troll:      { name: 'Troll',          type: 'monster',  count: 2,  dmg: 4,   icon: '🧌', text: '4 damage' },
   dragon:     { name: 'Dragon',         type: 'monster',  count: 1,  dmg: 6,   icon: '🐉', text: '6 damage' },
   potion:     { name: 'Potion',         type: 'special',  count: 3,  icon: '🧪', text: 'Heal 3 damage this turn' },
@@ -21,9 +21,15 @@ const CARDS = {
   shield:     { name: 'Shield',         type: 'special',  count: 2,  icon: '🛡️', text: 'Block the next monster this turn' },
   mimic:      { name: 'Mimic',          type: 'special',  count: 2,  dmg: 3,   icon: '👅', text: 'Looks like a Treasure Chest, then bites for 3 damage' },
   pickpocket: { name: 'Pickpocket',     type: 'special',  count: 2,  steal: 3, icon: '🫳', text: 'Steal 3 banked gold from the leader' },
-  curse:      { name: 'Curse',          type: 'special',  count: 2,  icon: '🕯️', text: 'The next player starts with 2 damage' },
-  ambush:     { name: 'Ambush',         type: 'special',  count: 2,  icon: '🏹', text: 'Choose another player: they skip their next turn' },
+  curse:      { name: 'Curse',          type: 'special',  count: 2,  icon: '🕯️', text: 'The next player starts with +2 damage (curses stack)' },
+  toll:       { name: 'Toll',           type: 'special',  count: 2,  icon: '🎲', text: 'Roll a die and pay that much gold to a player you choose' },
+  cavein:     { name: 'Cave-in',        type: 'special',  count: 1,  icon: '🪨', text: 'Lose ALL your gold, banked and carried. Your turn ends' },
+  ambush:     { name: 'Ambush',         type: 'special',  count: 2,  minPlayers: 3, icon: '🏹', text: 'Choose another player: they skip their next turn (3+ players)' },
+  plunder:    { name: 'Plunder',        type: 'special',  count: 1,  minPlayers: 3, icon: '🏴‍☠️', text: "Choose a player and take half their banked gold (3+ players)" },
 };
+
+const CURSE_DMG = 2;
+const MAX_CURSE = START_HEALTH - 2; // stacked curses never end a turn before it starts
 
 function shuffle(arr, rng = Math.random) {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -33,10 +39,11 @@ function shuffle(arr, rng = Math.random) {
   return arr;
 }
 
-function buildDeck(rng) {
+function buildDeck(rng, playerCount = MAX_PLAYERS) {
   const deck = [];
   let n = 0;
   for (const [key, def] of Object.entries(CARDS)) {
+    if (def.minPlayers && playerCount < def.minPlayers) continue;
     for (let i = 0; i < def.count; i++) deck.push({ id: n++, key });
   }
   return shuffle(deck, rng);
@@ -49,11 +56,12 @@ class Game {
     this.players = shuffle(players.map(p => ({
       id: p.id, name: p.name, banked: 0, bestEscape: 0, skipNext: false,
     })), rng);
-    this.deck = buildDeck(rng);
+    this.deck = buildDeck(rng, this.players.length);
+    this.deckSize = this.deck.length;
     this.discard = [];
     this.turnIdx = 0;
     this.round = 1;
-    this.pendingCurse = false;
+    this.pendingCurse = 0;
     this.finalRound = false;
     this.over = false;
     this.winners = [];
@@ -73,7 +81,7 @@ class Game {
 
   draw() {
     if (this.deck.length === 0) {
-      this.deck = this.discard.length ? shuffle(this.discard, this.rng) : buildDeck(this.rng);
+      this.deck = this.discard.length ? shuffle(this.discard, this.rng) : buildDeck(this.rng, this.players.length);
       this.discard = [];
       this.addLog('The dungeon deck was reshuffled.');
     }
@@ -82,7 +90,7 @@ class Game {
 
   peekTop() {
     if (this.deck.length === 0) {
-      this.deck = this.discard.length ? shuffle(this.discard, this.rng) : buildDeck(this.rng);
+      this.deck = this.discard.length ? shuffle(this.discard, this.rng) : buildDeck(this.rng, this.players.length);
       this.discard = [];
       this.addLog('The dungeon deck was reshuffled.');
     }
@@ -97,19 +105,19 @@ class Game {
       this.addLog(`${this.current.name} was ambushed and skips this turn.`);
       if (this.advanceSeat()) return;
     }
-    const cursed = this.pendingCurse;
-    this.pendingCurse = false;
+    const cursed = Math.min(this.pendingCurse, MAX_CURSE);
+    this.pendingCurse = 0;
     this.turn = {
       playerId: this.current.id,
-      damage: cursed ? 2 : 0,
+      damage: cursed,
       haul: 0,
       shield: false,
       flipped: [],      // [{ id, key, note }]
       peek: null,       // card seen with a Torch (only shown to the current player)
-      choosingAmbush: false,
+      choice: null,     // { kind: 'ambush' | 'plunder' | 'toll', roll } while the player must pick
       cursed,
     };
-    if (cursed) this.addLog(`${this.current.name} starts cursed with 2 damage.`);
+    if (cursed) this.addLog(`${this.current.name} starts cursed with ${cursed} damage.`);
   }
 
   // Moves to the next seat. Returns true if the game ended.
@@ -158,7 +166,7 @@ class Game {
     if (this.over) return 'The game is over.';
     const t = this.turn;
     if (!t || t.playerId !== playerId) return "It's not your turn.";
-    if (t.choosingAmbush) return 'Choose who to ambush first.';
+    if (t.choice) return 'Finish your card choice first.';
     const me = this.current;
     const card = this.draw();
     const def = CARDS[card.key];
@@ -206,12 +214,35 @@ class Game {
         flip.note = "You're the leader, nobody to rob";
       }
     } else if (card.key === 'curse') {
-      this.pendingCurse = true;
-      flip.note = 'Next player starts with 2 damage';
-      this.addLog(`${me.name} cursed the next player.`);
+      this.pendingCurse += CURSE_DMG;
+      const total = Math.min(this.pendingCurse, MAX_CURSE);
+      flip.note = `Next player starts with ${total} damage`;
+      this.addLog(`${me.name} cursed the next player (${total} damage waiting).`);
+    } else if (card.key === 'cavein') {
+      const lost = me.banked + t.haul;
+      me.banked = 0;
+      t.haul = 0;
+      flip.note = lost ? `Lost all ${lost} gold!` : 'Nothing to lose';
+      this.addLog(`The cave collapsed on ${me.name}! They lost all ${lost} gold.`);
+      this.endTurn('cavein');
+      return null;
+    } else if (card.key === 'toll') {
+      t.choice = { kind: 'toll', roll: null };
+      flip.note = 'Roll the die';
     } else if (card.key === 'ambush') {
-      t.choosingAmbush = true;
-      flip.note = 'Choose a player to skip their next turn';
+      if (this.choiceTargets('ambush').length) {
+        t.choice = { kind: 'ambush' };
+        flip.note = 'Choose a player to skip their next turn';
+      } else {
+        flip.note = 'Everyone is already ambushed';
+      }
+    } else if (card.key === 'plunder') {
+      if (this.choiceTargets('plunder').length) {
+        t.choice = { kind: 'plunder' };
+        flip.note = 'Choose a player to plunder';
+      } else {
+        flip.note = 'Nobody has gold to plunder';
+      }
     }
 
     if (t.damage >= START_HEALTH) {
@@ -221,16 +252,62 @@ class Game {
     return null;
   }
 
-  ambush(playerId, targetId) {
+  // Players the current player may pick for a choice card.
+  choiceTargets(kind) {
+    const others = this.players.filter(p => p.id !== this.current.id);
+    if (kind === 'ambush') return others.filter(p => !p.skipNext);
+    if (kind === 'plunder') return others.filter(p => p.banked >= 2);
+    return others;
+  }
+
+  roll(playerId) {
     const t = this.turn;
-    if (!t || t.playerId !== playerId || !t.choosingAmbush) return 'No ambush to play.';
-    const target = this.player(targetId);
-    if (!target || targetId === playerId) return 'Pick another player.';
-    target.skipNext = true;
-    t.choosingAmbush = false;
+    if (!t || t.playerId !== playerId || !t.choice || t.choice.kind !== 'toll') return 'No die to roll.';
+    if (t.choice.roll) return 'You already rolled.';
+    t.choice.roll = 1 + Math.floor(this.rng() * 6);
+    const me = this.current;
+    const owed = Math.min(t.choice.roll, t.haul + me.banked);
     const flip = t.flipped[t.flipped.length - 1];
-    flip.note = `${target.name} skips their next turn`;
-    this.addLog(`${this.current.name} ambushed ${target.name}.`);
+    if (owed === 0) {
+      flip.note = `Rolled ${t.choice.roll}, but you have no gold to pay`;
+      t.choice = null;
+    } else {
+      flip.note = `Rolled ${t.choice.roll}: choose who gets ${owed} gold`;
+    }
+    return null;
+  }
+
+  choose(playerId, targetId) {
+    const t = this.turn;
+    if (!t || t.playerId !== playerId || !t.choice) return 'Nothing to choose.';
+    const c = t.choice;
+    if (c.kind === 'toll' && !c.roll) return 'Roll the die first.';
+    const target = this.choiceTargets(c.kind).find(p => p.id === targetId);
+    if (!target) return 'Pick another player.';
+    const me = this.current;
+    const flip = t.flipped[t.flipped.length - 1];
+    if (c.kind === 'ambush') {
+      target.skipNext = true;
+      flip.note = `${target.name} skips their next turn`;
+      this.addLog(`${me.name} ambushed ${target.name}.`);
+    } else if (c.kind === 'plunder') {
+      const amount = Math.floor(target.banked / 2);
+      target.banked -= amount;
+      me.banked += amount;
+      flip.note = `Took ${amount} gold from ${target.name}`;
+      this.addLog(`${me.name} plundered ${amount} gold from ${target.name}.`);
+      this.checkFinalRound(me);
+    } else if (c.kind === 'toll') {
+      let owed = Math.min(c.roll, t.haul + me.banked);
+      const fromHaul = Math.min(owed, t.haul);
+      t.haul -= fromHaul;
+      me.banked -= owed - fromHaul;
+      target.banked += owed;
+      flip.note = `Rolled ${c.roll}: paid ${owed} gold to ${target.name}`;
+      this.addLog(`${me.name} rolled a ${c.roll} and paid ${owed} gold to ${target.name}.`);
+      this.checkFinalRound(target);
+    }
+    t.choice = null;
     return null;
   }
 
@@ -238,7 +315,7 @@ class Game {
     if (this.over) return 'The game is over.';
     const t = this.turn;
     if (!t || t.playerId !== playerId) return "It's not your turn.";
-    if (t.choosingAmbush) return 'Choose who to ambush first.';
+    if (t.choice) return 'Finish your card choice first.';
     if (t.flipped.length === 0) return 'Flip at least one card before escaping.';
     const me = this.current;
     me.banked += t.haul;
@@ -253,7 +330,7 @@ class Game {
   forceSkip() {
     if (this.over || !this.turn) return 'Nothing to skip.';
     const t = this.turn;
-    if (t.choosingAmbush) t.choosingAmbush = false;
+    t.choice = null;
     this.addLog(`${this.current.name}'s turn was skipped (disconnected). Their haul of ${t.haul} was lost.`);
     this.endTurn('skipped');
     return null;
@@ -276,12 +353,14 @@ class Game {
       turnPlayerId: t ? t.playerId : null,
       turn: t ? {
         damage: t.damage, haul: t.haul, shield: t.shield, cursed: t.cursed,
-        flipped: t.flipped, choosingAmbush: t.choosingAmbush,
+        flipped: t.flipped,
+        choice: t.choice ? { kind: t.choice.kind, roll: t.choice.roll || null, targets: this.choiceTargets(t.choice.kind).map(p => p.id) } : null,
         peek: t.peek && t.playerId === forId ? { key: t.peek.key === 'mimic' ? 'chest' : t.peek.key } : null,
         peeking: !!t.peek,
       } : null,
       lastTurn: this.lastTurn || null,
       deckCount: this.deck.length,
+      deckSize: this.deckSize,
       round: this.round,
       finalRound: this.finalRound,
       over: this.over,

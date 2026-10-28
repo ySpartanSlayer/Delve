@@ -17,7 +17,7 @@ Then open http://localhost:3000.
 npm test
 ```
 
-Plays 3,000 random games against the rules engine and checks that cards are conserved, gold never goes negative, and every game ends with a correct winner.
+Plays 3,000 random games (2 to 6 players) against the rules engine and checks that cards are conserved, gold never goes negative, and every game ends with a correct winner.
 
 ## Files
 

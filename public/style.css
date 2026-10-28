@@ -145,3 +145,6 @@ summary { cursor: pointer; font-weight: 700; }
 
 .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: #3a1d1d; color: #ffd0cc; border: 1px solid #6b2b2b; padding: 10px 16px; border-radius: 10px; z-index: 30; max-width: 90vw; font-size: 15px; }
 .conn { position: fixed; top: 0; left: 0; right: 0; text-align: center; background: #6b4a12; color: #fff; padding: 6px; font-size: 14px; z-index: 40; }
+
+.die { font-size: 72px; line-height: 1; margin-bottom: 6px; animation: roll .5s ease-out; }
+@keyframes roll { from { transform: rotate(-200deg) scale(.4); opacity: 0; } }

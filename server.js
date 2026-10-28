@@ -148,7 +148,8 @@ wss.on('connection', ws => {
         break;
       case 'delve': err = g ? g.delve(seat.id) : 'No game running.'; break;
       case 'escape': err = g ? g.escape(seat.id) : 'No game running.'; break;
-      case 'ambush': err = g ? g.ambush(seat.id, msg.target) : 'No game running.'; break;
+      case 'choose': err = g ? g.choose(seat.id, msg.target) : 'No game running.'; break;
+      case 'roll': err = g ? g.roll(seat.id) : 'No game running.'; break;
       case 'skip': {
         if (!g || g.over) return fail('No game running.');
         const cur = room.seats.find(s => s.id === g.turn?.playerId);
